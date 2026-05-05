@@ -82,6 +82,11 @@ jobs:
       run: |
         scp -i key.pem -o StrictHostKeyChecking=no ubuntu@$MASTER_IP:/home/ubuntu/join.sh ./join.sh
 
+    - name: Debug master script
+      run: |
+       echo "===== MASTER SCRIPT CONTENT ====="
+       cat scripts/master.sh
+
     # ✅ Wait for Worker SSH
     - name: Wait for Worker SSH
       run: |
