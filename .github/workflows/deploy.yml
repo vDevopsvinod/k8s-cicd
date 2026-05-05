@@ -9,18 +9,20 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: terraform
+
     steps:
-    # 🔹 Checkout code
+    # 🔹 Checkout
     - name: Checkout
       uses: actions/checkout@v3
 
-    # 🔍 DEBUG: show Terraform file used
+    # 🔹 Debug Terraform file
     - name: Debug main.tf
-      run: |
-        echo "===== MAIN.TF USED IN PIPELINE ====="
-        cat terraform/main.tf
+      run: cat main.tf
 
-    # 🔹 AWS Login
+    # 🔹 AWS Credentials
     - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v2
       with:
@@ -32,59 +34,66 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
-    # 🔥 FULL CLEAN (prevents old SG issue)
-    - name: Clean Terraform Completely
-      run: |
-        rm -rf terraform/.terraform
-        rm -f terraform/terraform.tfstate*
-        rm -f terraform/terraform.lock.hcl
-
-    # 🔹 Init (fresh providers)
+    # ✅ Init (S3 backend should be configured)
     - name: Terraform Init
       run: terraform init -upgrade
-      working-directory: terraform
 
-    # 🔹 Plan (fresh plan avoids stale config)
+    # ✅ Validate (important)
+    - name: Terraform Validate
+      run: terraform validate
+
+    # 🔹 Plan
     - name: Terraform Plan
       run: terraform plan -out=tfplan -no-color
-      working-directory: terraform
 
-    # 🔹 Apply (only this plan)
+    # 🔹 Apply
     - name: Terraform Apply
       run: terraform apply -auto-approve tfplan
-      working-directory: terraform
 
     # 🔹 Get Outputs
     - name: Get IPs
       run: |
         echo "MASTER_IP=$(terraform output -raw master_ip)" >> $GITHUB_ENV
         echo "WORKER_IP=$(terraform output -raw worker_ip)" >> $GITHUB_ENV
-      working-directory: terraform
 
-    # 🔹 Create PEM file
+    # 🔹 Create PEM
     - name: Create Key
       run: |
         echo "${{ secrets.EC2_KEY_PAIR }}" > key.pem
         chmod 400 key.pem
 
-    # 🔹 Wait for EC2 boot
-    - name: Wait for Instances
-      run: sleep 90
+    # ✅ Wait for SSH (better than sleep)
+    - name: Wait for Master SSH
+      run: |
+        for i in {1..20}; do
+          ssh -i key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=5 ubuntu@$MASTER_IP "echo OK" && break
+          echo "Waiting for Master..."
+          sleep 10
+        done
 
-    # 🔹 Setup Master Node
+    # 🔹 Setup Master
     - name: Setup Master
       run: |
-        scp -i key.pem -o StrictHostKeyChecking=no scripts/master.sh ubuntu@$MASTER_IP:/home/ubuntu/
+        scp -i key.pem -o StrictHostKeyChecking=no ../scripts/master.sh ubuntu@$MASTER_IP:/home/ubuntu/
         ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@$MASTER_IP "chmod +x master.sh && ./master.sh"
 
     # 🔹 Fetch Join Script
-    - name: Fetch Join Command
+    - name: Fetch Join Script
       run: |
         scp -i key.pem -o StrictHostKeyChecking=no ubuntu@$MASTER_IP:/home/ubuntu/join.sh ./join.sh
 
-    # 🔹 Setup Worker Node
+    # ✅ Wait for Worker SSH
+    - name: Wait for Worker SSH
+      run: |
+        for i in {1..20}; do
+          ssh -i key.pem -o StrictHostKeyChecking=no -o ConnectTimeout=5 ubuntu@$WORKER_IP "echo OK" && break
+          echo "Waiting for Worker..."
+          sleep 10
+        done
+
+    # 🔹 Setup Worker
     - name: Setup Worker
       run: |
-        scp -i key.pem -o StrictHostKeyChecking=no scripts/worker.sh ubuntu@$WORKER_IP:/home/ubuntu/
-        scp -i key.pem -o StrictHostKeyChecking=no join.sh ubuntu@$WORKER_IP:/home/ubuntu/
+        scp -i key.pem -o StrictHostKeyChecking=no ../scripts/worker.sh ubuntu@$WORKER_IP:/home/ubuntu/
+        scp -i key.pem -o StrictHostKeyChecking=no ./join.sh ubuntu@$WORKER_IP:/home/ubuntu/
         ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@$WORKER_IP "chmod +x worker.sh && ./worker.sh"
