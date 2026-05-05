@@ -1,4 +1,28 @@
 ############################################
+# 🔹 TERRAFORM SETTINGS
+############################################
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+
+  backend "s3" {
+    bucket  = "vinod-terraform-states"   # ✅ must exist
+    key     = "k8s/terraform.tfstate"
+    region  = "us-east-1"
+    encrypt = true
+
+    # ❌ REMOVE THIS (no DynamoDB)
+    # dynamodb_table = "terraform-lock"
+  }
+}
+
+############################################
 # 🔹 PROVIDER
 ############################################
 provider "aws" {
@@ -6,24 +30,11 @@ provider "aws" {
 }
 
 ############################################
-# 🔹 TERRAFORM BACKEND (S3 + LOCKING)
-############################################
-terraform {
-  backend "s3" {
-    bucket         = "vinod-terraform-states"
-    key            = "k8s/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "terraform-lock"
-  }
-}
-
-############################################
-# 🔹 FETCH LATEST UBUNTU AMI (DYNAMIC)
+# 🔹 FETCH LATEST UBUNTU AMI
 ############################################
 data "aws_ami" "ubuntu" {
   most_recent = true
-
-  owners = ["099720109477"] # Canonical
+  owners      = ["099720109477"]
 
   filter {
     name   = "name"
@@ -39,7 +50,6 @@ resource "aws_security_group" "k8s_sg" {
   description = "Kubernetes Security Group"
 
   ingress {
-    description = "SSH"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -47,7 +57,6 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   ingress {
-    description = "Kubernetes API Server"
     from_port   = 6443
     to_port     = 6443
     protocol    = "tcp"
@@ -55,7 +64,6 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   ingress {
-    description = "Kubelet"
     from_port   = 10250
     to_port     = 10250
     protocol    = "tcp"
@@ -63,7 +71,6 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   ingress {
-    description = "NodePort Services"
     from_port   = 30000
     to_port     = 32767
     protocol    = "tcp"
@@ -71,7 +78,6 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   egress {
-    description = "Allow All Traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
