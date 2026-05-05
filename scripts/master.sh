@@ -1,12 +1,17 @@
 #!/bin/bash
 set -e
 
-# 🔴 REMOVE any OLD Kubernetes repo (critical)
-sudo rm -f /etc/apt/sources.list.d/kubernetes.list*
-sudo rm -f /etc/apt/keyrings/kubernetes-archive-keyring.gpg
+export DEBIAN_FRONTEND=noninteractive
+
+# 🔴 Clean ONLY old Kubernetes configs (safe)
+sudo rm -f /etc/apt/sources.list.d/kubernetes*
+sudo rm -f /etc/apt/trusted.gpg.d/*kubernetes*
+sudo rm -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+# 🔴 Remove old repo references
 sudo sed -i '/apt.kubernetes.io/d' /etc/apt/sources.list || true
 
-# 🔹 Update system
+# 🔴 Clean cache
 sudo apt-get clean
 sudo apt-get update -y
 
@@ -15,10 +20,10 @@ sudo apt-get install -y docker.io
 sudo systemctl enable docker
 sudo systemctl start docker
 
-# 🔹 Disable swap
+# 🔹 Disable swap (required)
 sudo swapoff -a
 
-# 🔹 Enable kernel settings (required for Kubernetes)
+# 🔹 Kernel settings
 sudo modprobe overlay
 sudo modprobe br_netfilter
 
@@ -29,11 +34,15 @@ sudo sysctl --system
 # 🔹 Install dependencies
 sudo apt-get install -y apt-transport-https ca-certificates curl gpg
 
-# 🔹 Add NEW Kubernetes repo (correct one)
+# 🔹 Add Kubernetes repo (modern method)
 sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key \
-| sudo gpg --dearmor --batch --yes --no-tty -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key -o /tmp/k8s.key
+
+sudo gpg --dearmor --batch --yes --no-tty \
+  -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/k8s.key
+
+rm -f /tmp/k8s.key
 
 echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" \
 | sudo tee /etc/apt/sources.list.d/kubernetes.list
@@ -50,12 +59,12 @@ mkdir -p $HOME/.kube
 sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
-# 🔹 Allow pods on master
+# 🔹 Allow pods on master (optional)
 kubectl taint nodes --all node-role.kubernetes.io/control-plane- || true
 
-# 🔹 Install Calico
+# 🔹 Install Calico network
 kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
 
-# 🔹 Generate join command
+# 🔹 Generate join command for worker
 grep "kubeadm join" /home/ubuntu/init.txt > /home/ubuntu/join.sh
 chmod +x /home/ubuntu/join.sh

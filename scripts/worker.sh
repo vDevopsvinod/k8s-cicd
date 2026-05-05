@@ -1,12 +1,17 @@
 #!/bin/bash
 set -e
 
-# 🔴 REMOVE old Kubernetes repo (important)
-sudo rm -f /etc/apt/sources.list.d/kubernetes.list*
-sudo rm -f /etc/apt/keyrings/kubernetes-archive-keyring.gpg
+export DEBIAN_FRONTEND=noninteractive
+
+# 🔴 Clean ONLY Kubernetes old configs (safe)
+sudo rm -f /etc/apt/sources.list.d/kubernetes*
+sudo rm -f /etc/apt/trusted.gpg.d/*kubernetes*
+sudo rm -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+# 🔴 Remove old repo references
 sudo sed -i '/apt.kubernetes.io/d' /etc/apt/sources.list || true
 
-# 🔹 Update system
+# 🔴 Clean cache
 sudo apt-get clean
 sudo apt-get update -y
 
@@ -18,7 +23,7 @@ sudo systemctl start docker
 # 🔹 Disable swap
 sudo swapoff -a
 
-# 🔹 Enable kernel modules
+# 🔹 Kernel config
 sudo modprobe overlay
 sudo modprobe br_netfilter
 
@@ -26,14 +31,18 @@ echo "net.bridge.bridge-nf-call-iptables = 1" | sudo tee /etc/sysctl.d/k8s.conf
 echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.d/k8s.conf
 sudo sysctl --system
 
-# 🔹 Install dependencies
+# 🔹 Dependencies
 sudo apt-get install -y apt-transport-https ca-certificates curl gpg
 
-# 🔹 Add NEW Kubernetes repo
+# 🔹 Add Kubernetes repo (modern method)
 sudo mkdir -p /etc/apt/keyrings
 
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key \
-| sudo gpg --dearmor --batch --yes --no-tty -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key -o /tmp/k8s.key
+
+sudo gpg --dearmor --batch --yes --no-tty \
+  -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/k8s.key
+
+rm -f /tmp/k8s.key
 
 echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" \
 | sudo tee /etc/apt/sources.list.d/kubernetes.list
