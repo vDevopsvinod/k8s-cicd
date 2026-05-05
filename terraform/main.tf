@@ -2,9 +2,9 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# 🔹 Create NEW Security Group
+# 🔹 Create NEW Security Group (NO data block)
 resource "aws_security_group" "k8s_sg" {
-  name        = "k8s-sg-new"
+  name        = "k8s-sg-new-1"
   description = "Allow Kubernetes traffic"
 
   ingress {
@@ -32,7 +32,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   ingress {
-    description = "NodePort Range"
+    description = "NodePort"
     from_port   = 30000
     to_port     = 32767
     protocol    = "tcp"
@@ -40,7 +40,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   egress {
-    description = "Allow all outbound"
+    description = "All traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -48,7 +48,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   tags = {
-    Name = "k8s-sg-new"
+    Name = "k8s-sg-new-1"
   }
 }
 
