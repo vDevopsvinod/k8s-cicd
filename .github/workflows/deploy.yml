@@ -14,15 +14,15 @@ jobs:
         working-directory: terraform
 
     steps:
-    # 🔹 Checkout
+    # 🔹 Checkout repo
     - name: Checkout
       uses: actions/checkout@v3
 
-    # 🔹 Debug Terraform file
+    # 🔹 Debug Terraform
     - name: Debug main.tf
       run: cat main.tf
 
-    # 🔹 AWS Credentials
+    # 🔹 AWS Login
     - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v2
       with:
@@ -34,11 +34,11 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
-    # ✅ Init (S3 backend should be configured)
+    # 🔹 Init
     - name: Terraform Init
       run: terraform init -upgrade
 
-    # ✅ Validate (important)
+    # 🔹 Validate
     - name: Terraform Validate
       run: terraform validate
 
@@ -62,7 +62,13 @@ jobs:
         echo "${{ secrets.EC2_KEY_PAIR }}" > key.pem
         chmod 400 key.pem
 
-    # ✅ Wait for SSH (better than sleep)
+    # 🔥 DEBUG MASTER SCRIPT (IMPORTANT)
+    - name: Debug master script
+      run: |
+        echo "===== MASTER SCRIPT CONTENT ====="
+        cat ../scripts/master.sh
+
+    # 🔹 Wait for Master SSH
     - name: Wait for Master SSH
       run: |
         for i in {1..20}; do
@@ -82,12 +88,13 @@ jobs:
       run: |
         scp -i key.pem -o StrictHostKeyChecking=no ubuntu@$MASTER_IP:/home/ubuntu/join.sh ./join.sh
 
-    - name: Debug master script
+    # 🔥 DEBUG WORKER SCRIPT
+    - name: Debug worker script
       run: |
-       echo "===== MASTER SCRIPT CONTENT ====="
-       cat scripts/master.sh
+        echo "===== WORKER SCRIPT CONTENT ====="
+        cat ../scripts/worker.sh
 
-    # ✅ Wait for Worker SSH
+    # 🔹 Wait for Worker SSH
     - name: Wait for Worker SSH
       run: |
         for i in {1..20}; do
