@@ -2,72 +2,61 @@
 set -e
 
 export DEBIAN_FRONTEND=noninteractive
-# 🔴 Clean ONLY old Kubernetes configs (safe)
-sudo rm -f /etc/apt/sources.list.d/kubernetes*
-sudo rm -f /etc/apt/trusted.gpg.d/*kubernetes*
-sudo rm -f /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
-# 🔴 Remove old repo references
+# Clean old configs
+sudo rm -f /etc/apt/sources.list.d/kubernetes* /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 sudo sed -i '/apt.kubernetes.io/d' /etc/apt/sources.list || true
 
-# 🔴 Clean cache
-sudo apt-get clean
-sudo apt-get update -y
+# 1. Install Containerd (The K8s standard runtime)
+sudo apt-get update
+sudo apt-get install -y containerd
+sudo mkdir -p /etc/containerd
+containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+sudo systemctl restart containerd
 
-# 🔹 Install Docker
-sudo apt-get install -y docker.io
-sudo systemctl enable docker
-sudo systemctl start docker
-
-# 🔹 Disable swap (required)
+# 2. Disable Swap
 sudo swapoff -a
+sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
 
-# 🔹 Kernel settings
+# 3. Kernel Settings
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
 sudo modprobe overlay
 sudo modprobe br_netfilter
 
-echo "net.bridge.bridge-nf-call-iptables = 1" | sudo tee /etc/sysctl.d/k8s.conf
-echo "net.ipv4.ip_forward = 1" | sudo tee -a /etc/sysctl.d/k8s.conf
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
 sudo sysctl --system
 
-# 🔹 Install dependencies
+# 4. Install K8s Components
 sudo apt-get install -y apt-transport-https ca-certificates curl gpg
+sudo mkdir -p -m 755 /etc/apt/keyrings
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor --yes --batch -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
 
-# 🔹 Add Kubernetes repo (modern method)
-# 🔹 Add Kubernetes repo (FINAL FIX - NO PIPE)
-
-# 🔹 Add Kubernetes repo (FINAL FIX — NO GPG)
-
-sudo mkdir -p /etc/apt/keyrings
-
-# Just download key (no gpg processing)
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key \
-  | sudo tee /etc/apt/keyrings/kubernetes-apt-keyring.gpg > /dev/null
-
-# Add repo
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" \
-| sudo tee /etc/apt/sources.list.d/kubernetes.list
-
-# Remove temp file
-rm -f /tmp/k8s.key
-# 🔹 Install Kubernetes
-sudo apt-get update -y
+sudo apt-get update
 sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
 
-# 🔹 Initialize cluster
-sudo kubeadm init --pod-network-cidr=192.168.0.0/16 | tee /home/ubuntu/init.txt
+# 5. Initialize Cluster
+# Use --node-name if your hostname isn't resolvable
+sudo kubeadm init --pod-network-cidr=192.168.0.0/16 | tee $HOME/init.txt
 
-# 🔹 Configure kubectl
+# 6. Configure kubectl
 mkdir -p $HOME/.kube
 sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
-# 🔹 Allow pods on master (optional)
-kubectl taint nodes --all node-role.kubernetes.io/control-plane- || true
+# 7. Network Plugin (Calico)
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml
 
-# 🔹 Install Calico network
-kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
-
-# 🔹 Generate join command for worker
-grep "kubeadm join" /home/ubuntu/init.txt > /home/ubuntu/join.sh
-chmod +x /home/ubuntu/join.sh
+# 8. Create Join Script for Workers
+grep -A 2 "kubeadm join" $HOME/init.txt > $HOME/join.sh
+chmod +x $HOME/join.sh
+echo "Master node ready. Join script created at ~/join.sh"
