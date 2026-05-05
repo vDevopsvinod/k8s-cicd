@@ -1,4 +1,4 @@
-name: Full K8s CI/CD (Terraform + kubeadm)
+name: K8s CI/CD (1 Master + 1 Worker)
 
 on:
   push:
@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # 🔹 Checkout code
     - name: Checkout
       uses: actions/checkout@v3
 
@@ -25,8 +26,8 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
-    # 🔥 FULL CLEAN (VERY IMPORTANT)
-    - name: Clean Terraform Completely
+    # 🔹 Clean old state (IMPORTANT)
+    - name: Clean Terraform
       run: |
         rm -rf .terraform
         rm -f terraform.tfstate
@@ -34,49 +35,47 @@ jobs:
         rm -f terraform.lock.hcl
       working-directory: terraform
 
-    # 🔹 Terraform Init (fresh)
+    # 🔹 Init
     - name: Terraform Init
       run: terraform init -upgrade
       working-directory: terraform
 
-    # 🔹 Terraform Apply (no cache)
+    # 🔹 Apply
     - name: Terraform Apply
       run: terraform apply -auto-approve -no-color
       working-directory: terraform
 
     # 🔹 Get Outputs
-    - name: Get Outputs
+    - name: Get IPs
       run: |
         echo "MASTER_IP=$(terraform output -raw master_ip)" >> $GITHUB_ENV
-        echo "WORKER_IPS=$(terraform output -json worker_ips | jq -r '.[]')" >> $GITHUB_ENV
+        echo "WORKER_IP=$(terraform output -raw worker_ip)" >> $GITHUB_ENV
       working-directory: terraform
 
-    # 🔹 Create PEM Key
+    # 🔹 Create PEM file
     - name: Create Key
       run: |
         echo "${{ secrets.EC2_KEY_PAIR }}" > key.pem
         chmod 400 key.pem
 
-    # 🔹 Wait for EC2 (important)
-    - name: Wait for EC2
+    # 🔹 Wait for EC2 boot
+    - name: Wait for Instances
       run: sleep 90
 
-    # 🔹 Setup Master
-    - name: Setup Master Node
+    # 🔹 Setup Master Node
+    - name: Setup Master
       run: |
         scp -i key.pem -o StrictHostKeyChecking=no scripts/master.sh ubuntu@$MASTER_IP:/home/ubuntu/
         ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@$MASTER_IP "chmod +x master.sh && ./master.sh"
 
     # 🔹 Fetch Join Script
-    - name: Fetch Join Script
+    - name: Fetch Join Command
       run: |
         scp -i key.pem -o StrictHostKeyChecking=no ubuntu@$MASTER_IP:/home/ubuntu/join.sh ./join.sh
 
-    # 🔹 Setup Workers
-    - name: Setup Worker Nodes
+    # 🔹 Setup Worker Node
+    - name: Setup Worker
       run: |
-        for ip in $WORKER_IPS; do
-          scp -i key.pem -o StrictHostKeyChecking=no scripts/worker.sh ubuntu@$ip:/home/ubuntu/
-          scp -i key.pem -o StrictHostKeyChecking=no join.sh ubuntu@$ip:/home/ubuntu/
-          ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@$ip "chmod +x worker.sh && ./worker.sh"
-        done
+        scp -i key.pem -o StrictHostKeyChecking=no scripts/worker.sh ubuntu@$WORKER_IP:/home/ubuntu/
+        scp -i key.pem -o StrictHostKeyChecking=no join.sh ubuntu@$WORKER_IP:/home/ubuntu/
+        ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@$WORKER_IP "chmod +x worker.sh && ./worker.sh"

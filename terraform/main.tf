@@ -2,12 +2,13 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# 🔹 Security Group (dynamic name — no duplicate issue)
+# 🔹 Security Group (unique every run → no duplicate error)
 resource "aws_security_group" "k8s_sg" {
-  name_prefix = "k8s-sg-"
+  name_prefix = "k8s-sg-${timestamp()}-"
   description = "Kubernetes SG"
 
   ingress {
+    description = "SSH"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -15,6 +16,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   ingress {
+    description = "Kubernetes API"
     from_port   = 6443
     to_port     = 6443
     protocol    = "tcp"
@@ -22,6 +24,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   ingress {
+    description = "Kubelet"
     from_port   = 10250
     to_port     = 10250
     protocol    = "tcp"
@@ -29,6 +32,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   ingress {
+    description = "NodePort"
     from_port   = 30000
     to_port     = 32767
     protocol    = "tcp"
@@ -36,6 +40,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   egress {
+    description = "All traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -50,26 +55,33 @@ resource "aws_security_group" "k8s_sg" {
 # 🔹 Master Node
 resource "aws_instance" "master" {
   ami           = "ami-091138d0f0d41ff90"
-  instance_type = "c7i-flex.large"   # IMPORTANT FIX
+  instance_type = "t3.small"
   key_name      = "vinod"
 
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
+
+  root_block_device {
+    volume_size = 20
+  }
 
   tags = {
     Name = "k8s-master"
   }
 }
 
-# 🔹 Worker Nodes
+# 🔹 Worker Node (ONLY 1)
 resource "aws_instance" "worker" {
-  count         = 2
   ami           = "ami-091138d0f0d41ff90"
-  instance_type = "c7i-flex.large"   # IMPORTANT FIX
+  instance_type = "t3.small"
   key_name      = "vinod"
 
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
 
+  root_block_device {
+    volume_size = 20
+  }
+
   tags = {
-    Name = "k8s-worker-${count.index}"
+    Name = "k8s-worker"
   }
 }
