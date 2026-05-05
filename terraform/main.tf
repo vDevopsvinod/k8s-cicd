@@ -47,7 +47,7 @@ resource "aws_security_group" "k8s_sg" {
 resource "aws_instance" "master" {
   ami           = "ami-091138d0f0d41ff90" # Ubuntu 22.04 (ap-south-1)
   instance_type = "t3.micro"
-  key_name      = "your-key-name"
+  key_name      = "vinod"
 
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
 
