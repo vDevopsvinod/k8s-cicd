@@ -2,10 +2,9 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# 🔹 Create NEW Security Group
 resource "aws_security_group" "k8s_sg" {
-  name        = "k8s-sg-new-2"
-  description = "Allow Kubernetes traffic"
+  name        = "k8s-sg-final"
+  description = "Kubernetes SG"
 
   ingress {
     from_port   = 22
@@ -41,35 +40,21 @@ resource "aws_security_group" "k8s_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  tags = {
-    Name = "k8s-sg-new-2"
-  }
 }
 
-# 🔹 Master Node
 resource "aws_instance" "master" {
   ami           = "ami-091138d0f0d41ff90"
-  instance_type = "t3.micro"
+  instance_type = "t2.medium"
   key_name      = "vinod"
 
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
-
-  tags = {
-    Name = "k8s-master"
-  }
 }
 
-# 🔹 Worker Nodes
 resource "aws_instance" "worker" {
   count         = 2
   ami           = "ami-091138d0f0d41ff90"
-  instance_type = "t3.micro"
+  instance_type = "t2.medium"
   key_name      = "vinod"
 
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
-
-  tags = {
-    Name = "k8s-worker-${count.index}"
-  }
 }
