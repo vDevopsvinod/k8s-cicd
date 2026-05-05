@@ -36,16 +36,17 @@ sudo apt-get install -y apt-transport-https ca-certificates curl gpg
 # 🔹 Add Kubernetes repo (modern method)
 # 🔹 Add Kubernetes repo (FINAL FIX - NO PIPE)
 
+# 🔹 Add Kubernetes repo (FINAL FIX — NO GPG)
+
 sudo mkdir -p /etc/apt/keyrings
 
-# Download key to file
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key -o /tmp/k8s.key
+# Just download key (no gpg processing)
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key \
+  | sudo tee /etc/apt/keyrings/kubernetes-apt-keyring.gpg > /dev/null
 
-# Convert key (NON-INTERACTIVE SAFE)
-export GNUPGHOME=/tmp
-
-sudo gpg --dearmor --batch --yes --no-tty \
-  -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/k8s.key
+# Add repo
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" \
+| sudo tee /etc/apt/sources.list.d/kubernetes.list
 
 # Remove temp file
 rm -f /tmp/k8s.key
