@@ -1,53 +1,135 @@
 #!/bin/bash
-set -euo pipefail
+set -e
 
+# Prevent interactive prompts
 export DEBIAN_FRONTEND=noninteractive
+export GPG_TTY=/dev/null
 
-# 🔹 Disable swap
-sudo swapoff -a
-sudo sed -i '/swap/d' /etc/fstab || true
+# Color output for clarity
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
 
-# 🔹 Kernel modules
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+## 1. Disable Swap
+log_info "Disabling swap..."
+sudo swapoff -a 2>/dev/null || log_warn "Swap already disabled"
+sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+## 2. Kernel Modules & Networking
+log_info "Loading kernel modules..."
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf > /dev/null
+overlay
+br_netfilter
+EOF
 sudo modprobe overlay
 sudo modprobe br_netfilter
 
-cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+log_info "Configuring kernel parameters..."
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf > /dev/null
 net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward                 = 1
 EOF
+sudo sysctl --system > /dev/null 2>&1
 
-sudo sysctl --system
-
-# 🔹 Install containerd
-sudo apt-get update -y
-sudo apt-get install -y containerd
+## 3. Install Containerd
+log_info "Installing containerd..."
+sudo apt-get update > /dev/null 2>&1
+sudo apt-get install -y containerd > /dev/null 2>&1
 
 sudo mkdir -p /etc/containerd
-containerd config default | sudo tee /etc/containerd/config.toml >/dev/null
-sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-
-sudo systemctl enable containerd
+containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
 sudo systemctl restart containerd
+log_info "Containerd installed and configured"
 
-# 🔹 Install dependencies
-sudo apt-get install -y apt-transport-https ca-certificates curl
+## 4. Install Kubernetes Components - FIX: Separate curl and gpg operations
+log_info "Installing Kubernetes components..."
+sudo apt-get install -y apt-transport-https ca-certificates curl gpg > /dev/null 2>&1
+sudo mkdir -p -m 755 /etc/apt/keyrings
 
-# 🔥 FINAL FIX — NO GPG, NO apt-key
-sudo mkdir -p /etc/apt/keyrings
+# FIX: Download key to temporary file first, then convert with gpg
+log_info "Downloading Kubernetes GPG key..."
+MAX_RETRIES=3
+RETRY_COUNT=0
+TEMP_KEY="/tmp/k8s-release.key"
 
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key \
-| sudo tee /etc/apt/keyrings/kubernetes-apt-keyring.gpg > /dev/null
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -fsSL --max-time 30 --output "$TEMP_KEY" \
+        https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key 2>/dev/null; then
+        
+        # Verify file was downloaded
+        if [ -s "$TEMP_KEY" ]; then
+            log_info "GPG key downloaded successfully"
+            break
+        else
+            log_warn "Downloaded file is empty"
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+        fi
+    else
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+            log_warn "Failed to download GPG key (attempt $RETRY_COUNT/$MAX_RETRIES). Retrying in 5 seconds..."
+            sleep 5
+        else
+            log_error "Failed to download GPG key after $MAX_RETRIES attempts"
+            exit 1
+        fi
+    fi
+done
 
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" \
-| sudo tee /etc/apt/sources.list.d/kubernetes.list
+# Now convert the key with gpg (no pipe, no tty issues)
+log_info "Converting GPG key format..."
+if sudo gpg --dearmor --yes --batch --no-tty --quiet \
+    --output /etc/apt/keyrings/kubernetes-apt-keyring.gpg "$TEMP_KEY" 2>/dev/null; then
+    log_info "GPG key processed successfully"
+    rm -f "$TEMP_KEY"
+else
+    log_error "Failed to process GPG key"
+    exit 1
+fi
 
-# 🔹 Install Kubernetes
-sudo apt-get update -y
-sudo apt-get install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl
+# Verify the key exists and has content
+if [ ! -s /etc/apt/keyrings/kubernetes-apt-keyring.gpg ]; then
+    log_error "GPG key file is empty or missing"
+    exit 1
+fi
 
-# 🔹 Join cluster
-sudo bash join.sh
+# Add Kubernetes repository
+log_info "Adding Kubernetes repository..."
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | \
+sudo tee /etc/apt/sources.list.d/kubernetes.list > /dev/null
 
-echo "WORKER JOINED"
+sudo apt-get update > /dev/null 2>&1
+log_info "Installing kubelet, kubeadm, and kubectl..."
+sudo apt-get install -y kubelet kubeadm kubectl > /dev/null 2>&1
+sudo apt-mark hold kubelet kubeadm kubectl > /dev/null 2>&1
+
+echo ""
+echo "========================================"
+log_info "Worker node setup completed!"
+echo "========================================"
+echo ""
+echo "Next steps:"
+echo "1. Get the join command from master: cat ~/join.sh"
+echo "2. Copy and paste the join command below:"
+echo "   (or paste the contents of master's join.sh file)"
+echo ""
+echo "Example:"
+echo "  sudo kubeadm join <master-ip>:6443 --token <token> \\"
+echo "    --discovery-token-ca-cert-hash sha256:<hash>"
+echo ""
+echo "========================================"
