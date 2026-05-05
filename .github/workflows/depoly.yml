@@ -21,44 +21,57 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: us-east-1
 
-    # 🔹 Terraform
+    # 🔹 Setup Terraform
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
+    # 🔥 IMPORTANT: Clean old Terraform state (fix your error)
+    - name: Clean Terraform State
+      run: |
+        rm -rf .terraform
+        rm -f terraform.tfstate
+        rm -f terraform.tfstate.backup
+      working-directory: terraform
+
+    # 🔹 Terraform Init
     - name: Terraform Init
       run: terraform init
       working-directory: terraform
 
+    # 🔹 Terraform Apply
     - name: Terraform Apply
       run: terraform apply -auto-approve
       working-directory: terraform
 
-    # 🔹 Get IPs
+    # 🔹 Get Outputs
     - name: Get Outputs
-      id: tfout
       run: |
         echo "MASTER_IP=$(terraform output -raw master_ip)" >> $GITHUB_ENV
         echo "WORKER_IPS=$(terraform output -json worker_ips | jq -r '.[]')" >> $GITHUB_ENV
       working-directory: terraform
 
-    # 🔹 Create PEM
+    # 🔹 Create PEM Key
     - name: Create Key
       run: |
         echo "${{ secrets.EC2_KEY_PAIR }}" > key.pem
         chmod 400 key.pem
 
-    # 🔹 Setup Master
+    # 🔹 Wait for EC2 to be ready (IMPORTANT)
+    - name: Wait for EC2
+      run: sleep 60
+
+    # 🔹 Setup Master Node
     - name: Setup Master Node
       run: |
         scp -i key.pem -o StrictHostKeyChecking=no scripts/master.sh ubuntu@$MASTER_IP:/home/ubuntu/
         ssh -i key.pem -o StrictHostKeyChecking=no ubuntu@$MASTER_IP "chmod +x master.sh && ./master.sh"
 
-    # 🔹 Get Join Command
+    # 🔹 Fetch Join Script
     - name: Fetch Join Script
       run: |
-        scp -i key.pem ubuntu@$MASTER_IP:/home/ubuntu/join.sh ./join.sh
+        scp -i key.pem -o StrictHostKeyChecking=no ubuntu@$MASTER_IP:/home/ubuntu/join.sh ./join.sh
 
-    # 🔹 Setup Workers
+    # 🔹 Setup Worker Nodes
     - name: Setup Worker Nodes
       run: |
         for ip in $WORKER_IPS; do
