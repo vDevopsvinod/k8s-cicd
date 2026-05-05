@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 # 🔹 Security Group
-resource "aws_security_group" "k8s_sg" {
+resource "aws_security_group" "k8s_sg_v2" {
   name        = "k8s-sg"
   description = "Allow K8s traffic"
 
