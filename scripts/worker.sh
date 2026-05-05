@@ -1,52 +1,118 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Prevent interactive prompts
 export DEBIAN_FRONTEND=noninteractive
 
-## 1. Disable Swap
-sudo swapoff -a
-sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+# Color output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# Cleanup trap
+cleanup() {
+  local exit_code=$?
+  if [[ $exit_code -ne 0 ]]; then
+    log_error "Worker setup failed with exit code $exit_code"
+  fi
+}
+trap cleanup EXIT
+
+## 1. Disable Swap (idempotent)
+log_info "Disabling swap..."
+sudo swapoff -a 2>/dev/null || true
+if grep -q "^[^#]*swap" /etc/fstab; then
+  sudo sed -i '/^[^#]*swap/ s/^/#/' /etc/fstab
+fi
 
 ## 2. Kernel Modules & Networking
-cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+log_info "Loading kernel modules..."
+sudo mkdir -p /etc/modules-load.d
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf >/dev/null
 overlay
 br_netfilter
 EOF
-sudo modprobe overlay
-sudo modprobe br_netfilter
 
-cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+for mod in overlay br_netfilter; do
+  lsmod | grep -q "$mod" || sudo modprobe "$mod"
+done
+
+log_info "Configuring sysctl parameters..."
+sudo mkdir -p /etc/sysctl.d
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf >/dev/null
 net.bridge.bridge-nf-call-iptables  = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 net.ipv4.ip_forward                 = 1
 EOF
-sudo sysctl --system
+sudo sysctl --system >/dev/null 2>&1 || true
 
-## 3. Install Containerd
-sudo apt-get update
-sudo apt-get install -y containerd
+## 3. Install & Configure Containerd
+log_info "Installing containerd..."
+sudo apt-get update -qq
+sudo apt-get install -y -qq containerd
+
 sudo mkdir -p /etc/containerd
-containerd config default | sudo tee /etc/containerd/config.toml > /dev/null
+if [[ ! -f /etc/containerd/config.toml ]]; then
+  containerd config default | sudo tee /etc/containerd/config.toml >/dev/null
+fi
 sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
-sudo systemctl restart containerd
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now containerd >/dev/null 2>&1
+log_info "Containerd installed and running"
 
 ## 4. Install Kubernetes Components
-sudo apt-get install -y apt-transport-https ca-certificates curl gpg
+log_info "Installing Kubernetes packages..."
+sudo apt-get install -y -qq apt-transport-https ca-certificates curl gpg
+
 sudo mkdir -p -m 755 /etc/apt/keyrings
 
-# The --batch --yes flags solve the /dev/tty error
-curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | \
-sudo gpg --dearmor --yes --batch -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+# Download Kubernetes GPG key with retry (same as master.sh)
+KEYRING="/etc/apt/keyrings/kubernetes-apt-keyring.gpg"
+KEY_URL="https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key"
 
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | \
-sudo tee /etc/apt/sources.list.d/kubernetes.list
+log_info "Downloading Kubernetes GPG key..."
+for attempt in {1..3}; do
+  if sudo curl -fsSL -o "$KEYRING" "$KEY_URL" 2>/dev/null && [[ -s "$KEYRING" ]]; then
+    log_info "GPG key downloaded successfully"
+    break
+  elif [[ $attempt -eq 3 ]]; then
+    log_error "Failed to download GPG key after 3 attempts"
+    exit 1
+  else
+    log_warn "Attempt $attempt failed, retrying in 5s..."
+    sleep 5
+  fi
+done
 
-sudo apt-get update
-sudo apt-get install -y kubelet kubeadm kubectl
-sudo apt-mark hold kubelet kubeadm kubectl
+# Add Kubernetes repository
+echo "deb [signed-by=${KEYRING}] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | \
+  sudo tee /etc/apt/sources.list.d/kubernetes.list >/dev/null
 
+sudo apt-get update -qq
+sudo apt-get install -y -qq kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl >/dev/null
+
+log_info "Kubernetes components installed"
+
+## 5. Ready for Join Command
+echo ""
 echo "------------------------------------------------------"
-echo "Worker node is ready!"
-echo "Run the 'kubeadm join' command from your master node."
+log_info "✅ Worker node is ready!"
+echo "------------------------------------------------------"
+echo ""
+echo "Next step:"
+echo "1. Get the join command from your master node:"
+echo "   cat ~/join.sh   # (run on master)"
+echo ""
+echo "2. Paste and run that command here with sudo:"
+echo "   sudo kubeadm join <master-ip>:6443 --token <token> \\"
+echo "     --discovery-token-ca-cert-hash sha256:<hash>"
+echo ""
+echo "3. Verify on master: kubectl get nodes"
 echo "------------------------------------------------------"
