@@ -1,11 +1,42 @@
+############################################
+# 🔹 PROVIDER
+############################################
 provider "aws" {
   region = "us-east-1"
 }
 
-# 🔹 Security Group (unique every run → no duplicate error)
+############################################
+# 🔹 TERRAFORM BACKEND (S3 + LOCKING)
+############################################
+terraform {
+  backend "s3" {
+    bucket         = "vinod-terraform-state"
+    key            = "k8s/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "terraform-lock"
+  }
+}
+
+############################################
+# 🔹 FETCH LATEST UBUNTU AMI (DYNAMIC)
+############################################
+data "aws_ami" "ubuntu" {
+  most_recent = true
+
+  owners = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+}
+
+############################################
+# 🔹 SECURITY GROUP
+############################################
 resource "aws_security_group" "k8s_sg" {
-  name_prefix = "k8s-sg-${timestamp()}-"
-  description = "Kubernetes SG"
+  name        = "k8s-sg"
+  description = "Kubernetes Security Group"
 
   ingress {
     description = "SSH"
@@ -16,7 +47,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   ingress {
-    description = "Kubernetes API"
+    description = "Kubernetes API Server"
     from_port   = 6443
     to_port     = 6443
     protocol    = "tcp"
@@ -32,7 +63,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   ingress {
-    description = "NodePort"
+    description = "NodePort Services"
     from_port   = 30000
     to_port     = 32767
     protocol    = "tcp"
@@ -40,7 +71,7 @@ resource "aws_security_group" "k8s_sg" {
   }
 
   egress {
-    description = "All traffic"
+    description = "Allow All Traffic"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -52,9 +83,11 @@ resource "aws_security_group" "k8s_sg" {
   }
 }
 
-# 🔹 Master Node
+############################################
+# 🔹 MASTER NODE
+############################################
 resource "aws_instance" "master" {
-  ami           = "ami-091138d0f0d41ff90"
+  ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.small"
   key_name      = "vinod"
 
@@ -69,9 +102,11 @@ resource "aws_instance" "master" {
   }
 }
 
-# 🔹 Worker Node (ONLY 1)
+############################################
+# 🔹 WORKER NODE
+############################################
 resource "aws_instance" "worker" {
-  ami           = "ami-091138d0f0d41ff90"
+  ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.small"
   key_name      = "vinod"
 
