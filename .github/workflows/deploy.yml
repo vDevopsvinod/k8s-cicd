@@ -14,6 +14,12 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v3
 
+    # 🔍 DEBUG: show Terraform file used
+    - name: Debug main.tf
+      run: |
+        echo "===== MAIN.TF USED IN PIPELINE ====="
+        cat terraform/main.tf
+
     # 🔹 AWS Login
     - name: Configure AWS
       uses: aws-actions/configure-aws-credentials@v2
@@ -26,23 +32,26 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
-    # 🔹 Clean old state (IMPORTANT)
-    - name: Clean Terraform
+    # 🔥 FULL CLEAN (prevents old SG issue)
+    - name: Clean Terraform Completely
       run: |
-        rm -rf .terraform
-        rm -f terraform.tfstate
-        rm -f terraform.tfstate.backup
-        rm -f terraform.lock.hcl
-      working-directory: terraform
+        rm -rf terraform/.terraform
+        rm -f terraform/terraform.tfstate*
+        rm -f terraform/terraform.lock.hcl
 
-    # 🔹 Init
+    # 🔹 Init (fresh providers)
     - name: Terraform Init
       run: terraform init -upgrade
       working-directory: terraform
 
-    # 🔹 Apply
+    # 🔹 Plan (fresh plan avoids stale config)
+    - name: Terraform Plan
+      run: terraform plan -out=tfplan -no-color
+      working-directory: terraform
+
+    # 🔹 Apply (only this plan)
     - name: Terraform Apply
-      run: terraform apply -auto-approve -no-color
+      run: terraform apply -auto-approve tfplan
       working-directory: terraform
 
     # 🔹 Get Outputs
