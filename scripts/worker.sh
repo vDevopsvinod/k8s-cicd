@@ -34,18 +34,19 @@ sudo sysctl --system
 # 🔹 Dependencies
 sudo apt-get install -y apt-transport-https ca-certificates curl gpg
 
-# 🔹 Add Kubernetes repo (modern method)
+# # 🔹 Add Kubernetes repo (FINAL FIX - NO PIPE)
+
 sudo mkdir -p /etc/apt/keyrings
 
+# Download key to file
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key -o /tmp/k8s.key
 
+# Convert key (NON-INTERACTIVE SAFE)
 sudo gpg --dearmor --batch --yes --no-tty \
   -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/k8s.key
 
+# Remove temp file
 rm -f /tmp/k8s.key
-
-echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" \
-| sudo tee /etc/apt/sources.list.d/kubernetes.list
 
 # 🔹 Install Kubernetes
 sudo apt-get update -y
