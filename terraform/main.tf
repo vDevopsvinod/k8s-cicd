@@ -50,7 +50,7 @@ resource "aws_security_group" "k8s_sg" {
 # 🔹 Master Node
 resource "aws_instance" "master" {
   ami           = "ami-091138d0f0d41ff90"
-  instance_type = "t3.micro"   # IMPORTANT FIX
+  instance_type = "c7i-flex.large"   # IMPORTANT FIX
   key_name      = "vinod"
 
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
@@ -64,7 +64,7 @@ resource "aws_instance" "master" {
 resource "aws_instance" "worker" {
   count         = 2
   ami           = "ami-091138d0f0d41ff90"
-  instance_type = "t3.micro"   # IMPORTANT FIX
+  instance_type = "c7i-flex.large"   # IMPORTANT FIX
   key_name      = "vinod"
 
   vpc_security_group_ids = [aws_security_group.k8s_sg.id]
