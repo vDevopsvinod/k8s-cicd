@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 # 🔹 Security Group
-resource "aws_security_group" "k8s_sg_v2" {
+data "aws_security_group" "k8s_sg" {
   name        = "k8s-sg"
   description = "Allow K8s traffic"
 
@@ -49,7 +49,7 @@ resource "aws_instance" "master" {
   instance_type = "t3.micro"
   key_name      = "vinod"
 
-  vpc_security_group_ids = [aws_security_group.k8s_sg.id]
+  vpc_security_group_ids = [data_security_group.k8s_sg.id]
 
   tags = {
     Name = "k8s-master"
@@ -63,7 +63,7 @@ resource "aws_instance" "worker" {
   instance_type = "t3.micro"
   key_name      = "vinod"
 
-  vpc_security_group_ids = [aws_security_group.k8s_sg.id]
+  vpc_security_group_ids = [data_security_group.k8s_sg.id]
 
   tags = {
     Name = "k8s-worker-${count.index}"
