@@ -3,6 +3,12 @@
 set -e
 
 sudo apt-get update -y
+sudo apt-get install -y docker.io
+sudo systemctl enable docker
+sudo systemctl start docker
+
+sudo swapoff -a
+
 sudo apt-get install -y apt-transport-https ca-certificates curl gpg
 
 sudo mkdir -p /etc/apt/keyrings
@@ -15,5 +21,6 @@ echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.
 
 sudo apt-get update -y
 sudo apt-get install -y kubelet kubeadm kubectl
+
 # 🔹 Join cluster
 sudo bash /home/ubuntu/join.sh
