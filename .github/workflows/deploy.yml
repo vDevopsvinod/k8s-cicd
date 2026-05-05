@@ -25,22 +25,23 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
 
-    # 🔥 IMPORTANT: Clean old Terraform state (fix your error)
-    - name: Clean Terraform State
+    # 🔥 FULL CLEAN (VERY IMPORTANT)
+    - name: Clean Terraform Completely
       run: |
         rm -rf .terraform
         rm -f terraform.tfstate
         rm -f terraform.tfstate.backup
+        rm -f terraform.lock.hcl
       working-directory: terraform
 
-    # 🔹 Terraform Init
+    # 🔹 Terraform Init (fresh)
     - name: Terraform Init
-      run: terraform init
+      run: terraform init -upgrade
       working-directory: terraform
 
-    # 🔹 Terraform Apply
+    # 🔹 Terraform Apply (no cache)
     - name: Terraform Apply
-      run: terraform apply -auto-approve
+      run: terraform apply -auto-approve -no-color
       working-directory: terraform
 
     # 🔹 Get Outputs
@@ -56,11 +57,11 @@ jobs:
         echo "${{ secrets.EC2_KEY_PAIR }}" > key.pem
         chmod 400 key.pem
 
-    # 🔹 Wait for EC2 to be ready (IMPORTANT)
+    # 🔹 Wait for EC2 (important)
     - name: Wait for EC2
-      run: sleep 60
+      run: sleep 90
 
-    # 🔹 Setup Master Node
+    # 🔹 Setup Master
     - name: Setup Master Node
       run: |
         scp -i key.pem -o StrictHostKeyChecking=no scripts/master.sh ubuntu@$MASTER_IP:/home/ubuntu/
@@ -71,7 +72,7 @@ jobs:
       run: |
         scp -i key.pem -o StrictHostKeyChecking=no ubuntu@$MASTER_IP:/home/ubuntu/join.sh ./join.sh
 
-    # 🔹 Setup Worker Nodes
+    # 🔹 Setup Workers
     - name: Setup Worker Nodes
       run: |
         for ip in $WORKER_IPS; do
